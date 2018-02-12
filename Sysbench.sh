@@ -1,17 +1,17 @@
 #!/bin/bash
 prepare(){
-  sysbench /usr/share/sysbench/oltp_common.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest --verbosity=0 --table-size=$size cleanup 2>/dev/null
-  sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest --verbosity=5 --table-size=$size prepare
+  sysbench /usr/share/sysbench/oltp_common.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=0 --table-size=$size cleanup 2>/dev/null
+  sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size prepare
   echo $'\n##### Test table is prepared #####'
 }
 
 run(){
-  sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest --verbosity=5 --table-size=$size run
+  sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size run
   echo $'\n##### Sysbench '$tname' test is performed #####'
 }
 
 cleanup(){
-  sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest --verbosity=5 --table-size=$size cleanup
+  sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size cleanup
   echo $'\n##### Test Table is Dropped #####'
 }
 
@@ -66,12 +66,7 @@ echo "
 # Purpose - MySQL Server Testing
 # Author  - Mydbops
 # Website - www.mydbops.com
-
---------Before Running this script Please Ensure--------
-	1.Sysbench 1.0 is installed in your Machine.
-	2.Mysql is installed and running.
-	3.A test DB 'sbtest' is created.
-	4.MySQL User has the Required privileges."
+"
 
 if [[ -e /etc/redhat-release ]]
  then
@@ -86,11 +81,36 @@ fi
 while :
   do
    read -p 'Enter the MySQL user: ' user
-   read -sp 'Enter the password: ' pswd
+   unset pswd
+   unset char_count
+   echo -n "Enter password: "
+   stty -echo
+   char_count=0
+   while IFS= read -p "$star" -r -s -n 1 char
+      do
+        if [[ $char == $'\0' ]] ; then
+          break
+        fi
+        if [[ $char == $'\177' ]] ; then
+            if [ $char_count -gt 0 ] ; then
+              char_count=$((char_count-1))
+              star=$'\b \b'
+              pswd="${pswd%?}"
+            else
+              star=''
+        fi
+        else
+          char_count=$((char_count+1))
+          star='*'
+          pswd+="$char"
+        fi
+      done
+   stty echo   
    mysql -u$user -p$pswd sbtest -e"quit" >>/dev/null
    if [ $? -eq 0 ]
     then
-     echo $'\nUser,Password and Test Database Verified. Good to go!'
+     mysql -u$user -p$pswd sbtest -e"create database if not exists 'sbtest_mydbops'" >>/dev/null
+     echo $'\nUser,Password Verified. Good to go!'
      break
    elif [ $? -eq 1 ]
     then
