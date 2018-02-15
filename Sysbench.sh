@@ -1,56 +1,74 @@
 #!/bin/bash
 prepare(){
-sysbench /usr/share/sysbench/oltp_common.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size cleanup
-sysbench /usr/share/sysbench/oltp_common.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size prepare
+sysbench /usr/share/sysbench/oltp_common.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=0 --tables=$tbl_num --table-size=$size cleanup >>/dev/null
+sysbench /usr/share/sysbench/oltp_common.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=0 --tables=$tbl_num --table-size=$size prepare >>/dev/null
 #echo $'\n##### Test table is prepared #####'
 }
 run(){
-sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size run
-#echo $'\n##### Sysbench '$tname' test is performed #####'
+tstamp=$(date +%Y-%m-%d_%H:%M:%S)
+mkdir -p ~/Sysbench_Mydbops/$tstamp
+mkdir -p ~/Sysbench_Mydbops/Graphs/
+Test=${$1~}
+echo -e "Multiple $Test tests with different number of threads will be performed..\nProcess started.."
+for i in 2 4 8 16 32 64 128;
+do
+sysbench /usr/share/sysbench/oltp_$1.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --mysql-socket=/tmp/mysql.sock --threads=$i --verbosity=5 --table-size=$size run >> ~/Sysbench_Mydbops/$tstamp/sysbench.log
+done
+cat ~/Sysbench_Mydbops/$tstamp/sysbench.log | egrep " cat|threads:|transactions:" | tr -d "\n" | sed 's/Number of threads: /\n/g' | sed 's/\[/\n/g' | sed 's/[A-Za-z\/]\{1,\}://g'| sed 's/ \.//g' | awk {'print $1 $3'} | sed 's/(/\t/g' > ~/Sysbench_Mydbops/$tstamp/sysbench.csv
+echo -e "set terminal png
+set output \"~/Sysbench_Mydbops/Graphs/Benchmark_$tstamp.png\"
+set title \"MySQL Server Testing ($Test test) - Mydbops\"
+set size 1,1
+set grid y
+set grid x
+set xlabel \"Number of threads used\"
+set ylabel \"Transactions (tps)\"
+plot \"~/Sysbench_Mydbops/$tstamp/sysbench.csv\" using (log(\$1)):2:xtic(1) with linesp notitle" >> ~/Sysbench_Mydbops/$tstamp/mygraph
+cd ~/Sysbench_Mydbops/Graphs/
+gnuplot ~/Sysbench_Mydbops/$tstamp/mygraph
+echo "Multiple $Test Tests completed and the Graph is saved as \"~/Sysbench_Mydbops/Graphs/Benchmark_$tstamp.png\""
+
+
 }
+
 cleanup(){
-sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size cleanup
+sysbench /usr/share/sysbench/oltp_$1.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --tables=$tbl_num --table-size=$size cleanup
 #echo $'\n##### Test Table is Dropped #####'
 }
+
 exit_func(){
-  sysbench /usr/share/sysbench/oltp_$tname.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --table-size=$size cleanup
+  sysbench /usr/share/sysbench/oltp_$1.lua --db-driver=mysql --mysql-user=$user --mysql-password=$pswd --mysql-db=sbtest_mydbops --verbosity=5 --tables=$tbl_num --table-size=$size cleanup
   echo $'\nThanks for using this script'
   exit 0;
 }
-echo "
-#########################################################
-#                                                       #
-#           Script for Sysbench - Mydbops               #
-#                                                       #
-#########################################################
-# Version - 0.1.2
-# Purpose - MySQL Server Testing
-# Author  - MyDBOPS
-# Website - www.mydbops.com
 
-"
+
 installation(){
   if [[ $1 == rhel ]]; then
+    while true;do echo -n \#; sleep 0.5; done &
+    trap 'kill $!' SIGTERM SIGKILL
+    echo -e "Installing Sysbench...\nProgress:"
     curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.rpm.sh | sudo bash >>/dev/null
     sudo yum -y install sysbench >>/dev/null
+    echo -e"\nDone. Sysbench 1.0 Installed"
+    kill $!
   else
     if [[ $1 == deb ]]; then
-      curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.deb.sh | sudo bash >>/dev/null
-      sudo apt -y install sysbench >>/dev/null
+    while true;do echo -n \#; sleep 0.5; done &
+    trap 'kill $!' SIGTERM SIGKILL
+    echo -e "Installing Sysbench...\nProgress:"
+    curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.deb.sh | sudo bash >>/dev/null
+    sudo apt -y install sysbench >>/dev/null
+    echo -e"\nDone. Sysbench 1.0 Installed"
+    kill $!
     fi
   fi
 }
 
-if [[ -e /etc/redhat-release ]]; then
-  installation rhel
-else
-  installation deb
-fi
-
 MySQL(){
-   read -p 'Enter the MySQL user: ' user
    while :
     do
+     read -p 'Enter the MySQL user: ' user
      unset pswd
      unset char_count
      echo -n "Enter password: "
@@ -89,6 +107,11 @@ MySQL(){
 
    while :
     do
+      read -p $'\nEnter the number of the table: ' tbl_num
+      if [[ $tbl_num != *[!0-9]* ]];
+       then break
+      fi
+      echo $'\nEnter a valid Number..'
       read -p $'\nEnter the size of the table: ' size
       if [[ $size != *[!0-9]* ]];
        then break
@@ -99,48 +122,47 @@ MySQL(){
 all_tests(){
   for test_name in delete,insert,point_select,read_only,read_write,update_index,update_non_index,write_only;
    do
-    prepare test_name
-
+    prepare
+    run $test_name
+}all_tests
 }
 
-test_name(){
-  echo $'\nSelect a test name:\n\t1.Delete\n\t2.Insert\n\t3.Point Select\n\t4.Read Only\n\t5.Read and Write\n\t6.Update (Index)\n\t7.Update (Non-index)\n\t8.Write'
-  while :
-    do
-      read -p $'\nYour Option: ' t_num
-      case $t_num in
-        1)
-           all_tests
-           break;;
-        2)
-           tname=delete
-           break;;
-        3)
-           tname=insert
-           break;;
-        4)
-           tname=point_select
-           break;;
-        5)
-           tname=read_only
-           break;;
-        6)
-           tname=read_write
-           break;;
-        7)
-           tname=update_index
-           break;;
-        8)
-           tname=update_non_index
-           break;;
-        9)
-           tname=write_only
-           break;;
-        *)
-           echo $'\nInvalid option'
-           ;;
-      esac
-    done
-}test_name
+echo "
+#########################################################
+#                                                       #
+#           Script for Sysbench - Mydbops               #
+#                                                       #
+#########################################################
+# Version - 0.1.2
+# Purpose - Sysbench Testing
+# Author  - MyDBOPS
+# Website - www.mydbops.com
 
-}
+"
+if [[ -e /etc/redhat-release ]]; then
+  rpm -qa | grep -i sysbench
+  if [[ $? -eq 1 ]]; then
+    installation rhel
+  fi
+else
+    installation deb
+fi
+
+for i in $@
+do
+  if [[ $i == "cpu" ]]; then
+    echo -e "\nPerforming CPU Test..."
+    sysbench cpu --cpu-max-prime=20000 run
+  fi
+  if [[ $i == "fileio" ]]; then
+    echo -e "Creating files for the File IO test...\n"
+    while true;do echo -n \#; sleep 0.5; done &
+    trap 'kill $!' SIGTERM SIGKILL
+    sysbench fileio --file-total-size=150G prepare
+    kill $!
+    echo -e "\nPerforming File IO Test..."
+    sysbench fileio --file-total-size=150G --file-test-mode=rndrw --init-rng=on --max-time=300 --max-requests=0 run
+  fi
+  if [[ $i == "mysql" ]]; then
+    MySQL
+  fi
